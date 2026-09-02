@@ -3,12 +3,12 @@
 page_title: "confluencedc_space_permission Resource - confluencedc"
 subcategory: ""
 description: |-
-  Grants a permission on a Confluence space to a group. Requires Confluence Data Center 9.1 or later, the first release to expose space permission management through the REST API.
+  Grants a permission on a Confluence space to a group. Confluence Data Center's REST API only supports reading space permissions, not granting or revoking them, so this resource performs writes through Confluence's legacy JSON-RPC API (confluenceservice-v2) instead; that API is deprecated by Atlassian but still present and functional as of Confluence Data Center 9.2. It must remain enabled on the target instance for this resource to work.
 ---
 
 # confluencedc_space_permission (Resource)
 
-Grants a permission on a Confluence space to a group. Requires Confluence Data Center 9.1 or later, the first release to expose space permission management through the REST API.
+Grants a permission on a Confluence space to a group. Confluence Data Center's REST API only supports reading space permissions, not granting or revoking them, so this resource performs writes through Confluence's legacy JSON-RPC API (confluenceservice-v2) instead; that API is deprecated by Atlassian but still present and functional as of Confluence Data Center 9.2. It must remain enabled on the target instance for this resource to work.
 
 ## Example Usage
 
@@ -44,13 +44,13 @@ resource "confluencedc_space_permission" "developers_create_page" {
 ### Required
 
 - `group_name` (String) Name of the group the permission is granted to.
-- `operation_key` (String) The operation being granted, e.g. "read", "create", "delete", "export", "administer", "restrict_content", or "archive". See the Confluence REST API documentation for valid operation_key/operation_target combinations.
-- `operation_target` (String) The content type the operation applies to, e.g. "space", "page", "blogpost", "comment", or "attachment".
+- `operation_key` (String) The operation being granted. One of: "read", "create", "delete", "delete_own", "delete_mail", "export", "restrict", "administer". Must be paired with a valid operation_target; see the resource description for the full list of valid pairs.
+- `operation_target` (String) The content type the operation applies to. One of: "space", "page", "blogpost", "comment", "attachment". Valid operation_key/operation_target pairs: read/space, create/page, delete/page, create/blogpost, delete/blogpost, create/comment, delete/comment, create/attachment, delete/attachment, delete_own/space, delete_mail/space, export/space, restrict/space, administer/space.
 - `space_key` (String) Key of the space the permission applies to.
 
 ### Read-Only
 
-- `id` (String) Composite identifier in the form "<space_key>/<permission_id>".
+- `id` (String) Composite identifier in the form "<space_key>/<group_name>/<operation_key>/<operation_target>".
 
 ## Import
 

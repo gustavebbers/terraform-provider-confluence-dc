@@ -10,8 +10,9 @@ import (
 
 // TestAccSpacePermissionResource exercises the confluencedc_space_permission
 // resource's full lifecycle (create, read, import) against a real
-// Confluence Data Center instance (9.1+, which is the first release to
-// expose space permission management through the REST API).
+// Confluence Data Center instance. Writes go through the legacy JSON-RPC
+// API (see internal/client/jsonrpc.go), which must be enabled on the
+// target instance.
 //
 // Granting a real permission requires a real, pre-existing space to target,
 // so this test additionally requires CONFLUENCE_ACC_SPACE_KEY to be set to

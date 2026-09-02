@@ -3,7 +3,6 @@ package provider
 import (
 	"context"
 	"fmt"
-	"strconv"
 	"strings"
 
 	"github.com/hashicorp/terraform-plugin-framework/path"
@@ -43,12 +42,16 @@ func (r *spacePermissionResource) Metadata(_ context.Context, req resource.Metad
 
 func (r *spacePermissionResource) Schema(_ context.Context, _ resource.SchemaRequest, resp *resource.SchemaResponse) {
 	resp.Schema = schema.Schema{
-		Description: "Grants a permission on a Confluence space to a group. Requires Confluence Data Center " +
-			"9.1 or later, the first release to expose space permission management through the REST API.",
+		Description: "Grants a permission on a Confluence space to a group. Confluence Data Center's REST API " +
+			"only supports reading space permissions, not granting or revoking them, so this resource performs " +
+			"writes through Confluence's legacy JSON-RPC API (confluenceservice-v2) instead; that API is " +
+			"deprecated by Atlassian but still present and functional as of Confluence Data Center 9.2. It must " +
+			"remain enabled on the target instance for this resource to work.",
 		Attributes: map[string]schema.Attribute{
 			"id": schema.StringAttribute{
-				Computed:    true,
-				Description: "Composite identifier in the form \"<space_key>/<permission_id>\".",
+				Computed: true,
+				Description: "Composite identifier in the form " +
+					"\"<space_key>/<group_name>/<operation_key>/<operation_target>\".",
 				PlanModifiers: []planmodifier.String{
 					stringplanmodifier.UseStateForUnknown(),
 				},
@@ -69,16 +72,20 @@ func (r *spacePermissionResource) Schema(_ context.Context, _ resource.SchemaReq
 			},
 			"operation_key": schema.StringAttribute{
 				Required: true,
-				Description: "The operation being granted, e.g. \"read\", \"create\", \"delete\", \"export\", " +
-					"\"administer\", \"restrict_content\", or \"archive\". See the Confluence REST API " +
-					"documentation for valid operation_key/operation_target combinations.",
+				Description: "The operation being granted. One of: \"read\", \"create\", \"delete\", " +
+					"\"delete_own\", \"delete_mail\", \"export\", \"restrict\", \"administer\". Must be paired " +
+					"with a valid operation_target; see the resource description for the full list of valid pairs.",
 				PlanModifiers: []planmodifier.String{
 					stringplanmodifier.RequiresReplace(),
 				},
 			},
 			"operation_target": schema.StringAttribute{
-				Required:    true,
-				Description: "The content type the operation applies to, e.g. \"space\", \"page\", \"blogpost\", \"comment\", or \"attachment\".",
+				Required: true,
+				Description: "The content type the operation applies to. One of: \"space\", \"page\", " +
+					"\"blogpost\", \"comment\", \"attachment\". Valid operation_key/operation_target pairs: " +
+					"read/space, create/page, delete/page, create/blogpost, delete/blogpost, create/comment, " +
+					"delete/comment, create/attachment, delete/attachment, delete_own/space, delete_mail/space, " +
+					"export/space, restrict/space, administer/space.",
 				PlanModifiers: []planmodifier.String{
 					stringplanmodifier.RequiresReplace(),
 				},
@@ -110,21 +117,25 @@ func (r *spacePermissionResource) Create(ctx context.Context, req resource.Creat
 		return
 	}
 
-	perm, err := r.client.AddSpacePermission(ctx, plan.SpaceKey.ValueString(),
-		client.PermissionSubject{Type: "group", Identifier: plan.GroupName.ValueString()},
-		client.PermissionOperation{Key: plan.OperationKey.ValueString(), Target: plan.OperationTarget.ValueString()},
+	spaceKey := plan.SpaceKey.ValueString()
+	groupName := plan.GroupName.ValueString()
+	operationKey := plan.OperationKey.ValueString()
+	operationTarget := plan.OperationTarget.ValueString()
+
+	_, err := r.client.AddSpacePermission(ctx, spaceKey,
+		client.PermissionSubject{Type: "group", Identifier: groupName},
+		client.PermissionOperation{Key: operationKey, Target: operationTarget},
 	)
 	if err != nil {
 		resp.Diagnostics.AddError(
 			"Unable to Create Confluence Space Permission",
 			fmt.Sprintf("Could not grant %s/%s on space %q to group %q: %s",
-				plan.OperationKey.ValueString(), plan.OperationTarget.ValueString(),
-				plan.SpaceKey.ValueString(), plan.GroupName.ValueString(), err),
+				operationKey, operationTarget, spaceKey, groupName, err),
 		)
 		return
 	}
 
-	plan.ID = types.StringValue(composePermissionID(plan.SpaceKey.ValueString(), perm.ID))
+	plan.ID = types.StringValue(composePermissionID(spaceKey, groupName, operationKey, operationTarget))
 
 	resp.Diagnostics.Append(resp.State.Set(ctx, &plan)...)
 }
@@ -136,13 +147,16 @@ func (r *spacePermissionResource) Read(ctx context.Context, req resource.ReadReq
 		return
 	}
 
-	spaceKey, permID, err := parsePermissionID(state.ID.ValueString())
+	spaceKey, groupName, operationKey, operationTarget, err := parsePermissionID(state.ID.ValueString())
 	if err != nil {
 		resp.Diagnostics.AddError("Invalid Resource ID", err.Error())
 		return
 	}
 
-	perm, err := r.client.GetSpacePermission(ctx, spaceKey, permID)
+	_, err = r.client.GetSpacePermission(ctx, spaceKey,
+		client.PermissionSubject{Type: "group", Identifier: groupName},
+		client.PermissionOperation{Key: operationKey, Target: operationTarget},
+	)
 	if err != nil {
 		if client.IsNotFound(err) {
 			resp.State.RemoveResource(ctx)
@@ -150,16 +164,17 @@ func (r *spacePermissionResource) Read(ctx context.Context, req resource.ReadReq
 		}
 		resp.Diagnostics.AddError(
 			"Unable to Read Confluence Space Permission",
-			fmt.Sprintf("Could not read permission %d on space %q: %s", permID, spaceKey, err),
+			fmt.Sprintf("Could not read %s/%s permission for group %q on space %q: %s",
+				operationKey, operationTarget, groupName, spaceKey, err),
 		)
 		return
 	}
 
-	state.ID = types.StringValue(composePermissionID(spaceKey, perm.ID))
+	state.ID = types.StringValue(composePermissionID(spaceKey, groupName, operationKey, operationTarget))
 	state.SpaceKey = types.StringValue(spaceKey)
-	state.GroupName = types.StringValue(perm.Subject.Identifier)
-	state.OperationKey = types.StringValue(perm.Operation.Key)
-	state.OperationTarget = types.StringValue(perm.Operation.Target)
+	state.GroupName = types.StringValue(groupName)
+	state.OperationKey = types.StringValue(operationKey)
+	state.OperationTarget = types.StringValue(operationTarget)
 
 	resp.Diagnostics.Append(resp.State.Set(ctx, &state)...)
 }
@@ -178,16 +193,21 @@ func (r *spacePermissionResource) Delete(ctx context.Context, req resource.Delet
 		return
 	}
 
-	spaceKey, permID, err := parsePermissionID(state.ID.ValueString())
+	spaceKey, groupName, operationKey, operationTarget, err := parsePermissionID(state.ID.ValueString())
 	if err != nil {
 		resp.Diagnostics.AddError("Invalid Resource ID", err.Error())
 		return
 	}
 
-	if err := r.client.RemoveSpacePermission(ctx, spaceKey, permID); err != nil && !client.IsNotFound(err) {
+	err = r.client.RemoveSpacePermission(ctx, spaceKey,
+		client.PermissionSubject{Type: "group", Identifier: groupName},
+		client.PermissionOperation{Key: operationKey, Target: operationTarget},
+	)
+	if err != nil && !client.IsNotFound(err) {
 		resp.Diagnostics.AddError(
 			"Unable to Delete Confluence Space Permission",
-			fmt.Sprintf("Could not delete permission %d on space %q: %s", permID, spaceKey, err),
+			fmt.Sprintf("Could not revoke %s/%s permission for group %q on space %q: %s",
+				operationKey, operationTarget, groupName, spaceKey, err),
 		)
 	}
 }
@@ -196,20 +216,26 @@ func (r *spacePermissionResource) ImportState(ctx context.Context, req resource.
 	resource.ImportStatePassthroughID(ctx, path.Root("id"), req, resp)
 }
 
-func composePermissionID(spaceKey string, permissionID int64) string {
-	return fmt.Sprintf("%s/%d", spaceKey, permissionID)
+// composePermissionID builds the resource's composite ID. Space keys and
+// group names containing "/" are not supported for import (parsePermissionID
+// cannot unambiguously split them back apart); this is documented as a
+// limitation rather than worked around, since Confluence space keys never
+// contain "/" and group names doing so are exceedingly rare.
+func composePermissionID(spaceKey, groupName, operationKey, operationTarget string) string {
+	return strings.Join([]string{spaceKey, groupName, operationKey, operationTarget}, "/")
 }
 
-func parsePermissionID(id string) (spaceKey string, permissionID int64, err error) {
-	parts := strings.SplitN(id, "/", 2)
-	if len(parts) != 2 || parts[0] == "" || parts[1] == "" {
-		return "", 0, fmt.Errorf("expected an ID in the form \"<space_key>/<permission_id>\", got: %q", id)
+func parsePermissionID(id string) (spaceKey, groupName, operationKey, operationTarget string, err error) {
+	parts := strings.Split(id, "/")
+	if len(parts) != 4 {
+		return "", "", "", "", fmt.Errorf(
+			"expected an ID in the form \"<space_key>/<group_name>/<operation_key>/<operation_target>\", got: %q", id)
 	}
-
-	permissionID, err = strconv.ParseInt(parts[1], 10, 64)
-	if err != nil {
-		return "", 0, fmt.Errorf("expected a numeric permission ID in %q: %w", id, err)
+	for _, p := range parts {
+		if p == "" {
+			return "", "", "", "", fmt.Errorf(
+				"expected an ID in the form \"<space_key>/<group_name>/<operation_key>/<operation_target>\" with no empty segments, got: %q", id)
+		}
 	}
-
-	return parts[0], permissionID, nil
+	return parts[0], parts[1], parts[2], parts[3], nil
 }
