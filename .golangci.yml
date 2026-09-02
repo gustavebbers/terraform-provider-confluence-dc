@@ -11,6 +11,8 @@ linters:
     - unused
     - ineffassign
     - misspell
+    - errcheck
+    - gosec
   exclusions:
     paths:
       - examples
