@@ -1,0 +1,32 @@
+version: "2"
+
+run:
+  timeout: 5m
+
+linters:
+  default: none
+  enable:
+    - govet
+    - staticcheck
+    - unused
+    - ineffassign
+    - misspell
+  exclusions:
+    paths:
+      - examples
+
+formatters:
+  enable:
+    - gofmt
+    - goimports
+  settings:
+    goimports:
+      local-prefixes:
+        - github.com/gustavebbers/terraform-provider-confluence-dc
+  exclusions:
+    paths:
+      - examples
+
+issues:
+  max-issues-per-linter: 0
+  max-same-issues: 0
