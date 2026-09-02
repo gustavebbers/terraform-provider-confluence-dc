@@ -1,0 +1,12 @@
+name: tmp-export-pubkey
+on: workflow_dispatch
+jobs:
+  export:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: crazy-max/ghaction-import-gpg@v6
+        id: import_gpg
+        with:
+          gpg_private_key: ${{ secrets.GPG_PRIVATE_KEY }}
+          passphrase: ${{ secrets.PASSPHRASE }}
+      - run: gpg --armor --export "${{ steps.import_gpg.outputs.fingerprint }}"
