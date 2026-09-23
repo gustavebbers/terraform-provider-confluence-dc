@@ -82,6 +82,23 @@ func IsNotFound(err error) bool {
 	return ok && apiErr.StatusCode == http.StatusNotFound
 }
 
+// isRouteNotFound reports whether err indicates that a REST endpoint itself
+// doesn't exist on the target instance, as opposed to the endpoint existing
+// but rejecting the request for an application-level reason (e.g. "group not
+// found", which also comes back as a 404 but with a proper JSON error body).
+// Confluence Data Center versions old enough to predate an endpoint respond
+// to it with a generic, non-JSON 404/405 (e.g. an HTML error page), which is
+// why Message - populated only when the body parsed as Confluence's JSON
+// error envelope - is empty in that case. Callers use this to decide whether
+// to fall back to the legacy JSON-RPC API (see jsonrpc.go).
+func isRouteNotFound(err error) bool {
+	apiErr, ok := err.(*APIError)
+	if !ok {
+		return false
+	}
+	return (apiErr.StatusCode == http.StatusNotFound || apiErr.StatusCode == http.StatusMethodNotAllowed) && apiErr.Message == ""
+}
+
 // confluenceErrorBody is the typical error envelope returned by the
 // Confluence REST API.
 type confluenceErrorBody struct {

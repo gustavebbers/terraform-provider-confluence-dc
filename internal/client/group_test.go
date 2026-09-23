@@ -20,7 +20,7 @@ func TestCreateGroup_Success(t *testing.T) {
 		_ = json.Unmarshal(b, &gotBody)
 
 		w.WriteHeader(http.StatusOK)
-		_, _ = w.Write([]byte(`{"result": true, "jsonrpc": "2.0", "id": 1}`))
+		_, _ = w.Write([]byte(`{"name":"developers","type":"group"}`))
 	}))
 	defer srv.Close()
 
@@ -37,25 +37,92 @@ func TestCreateGroup_Success(t *testing.T) {
 	if gotMethod != http.MethodPost {
 		t.Errorf("method = %q, want %q", gotMethod, http.MethodPost)
 	}
-	if gotPath != jsonRPCPath {
-		t.Errorf("path = %q, want %q", gotPath, jsonRPCPath)
+	if gotPath != "/rest/api/admin/group" {
+		t.Errorf("path = %q, want %q", gotPath, "/rest/api/admin/group")
 	}
-	if gotBody["method"] != "addGroup" {
-		t.Errorf("request method = %v, want %q", gotBody["method"], "addGroup")
-	}
-	params, ok := gotBody["params"].([]any)
-	if !ok || len(params) != 1 || params[0] != "developers" {
-		t.Errorf("request params = %+v, want [\"developers\"]", gotBody["params"])
+	if gotBody["name"] != "developers" {
+		t.Errorf("request body name = %v, want %q", gotBody["name"], "developers")
 	}
 	if group.Name != "developers" {
 		t.Errorf("group.Name = %q, want %q", group.Name, "developers")
 	}
 }
 
-func TestCreateGroup_RPCError(t *testing.T) {
+func TestCreateGroup_RESTError(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.WriteHeader(http.StatusOK)
-		_, _ = w.Write([]byte(`{"error": {"code": 500, "message": "directory is read-only"}, "jsonrpc": "2.0", "id": 1}`))
+		w.WriteHeader(http.StatusConflict)
+		_, _ = w.Write([]byte(`{"message":"group already exists"}`))
+	}))
+	defer srv.Close()
+
+	c, err := New(Config{Host: srv.URL, Token: "tok"})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	_, err = c.CreateGroup(context.Background(), "developers")
+	if err == nil {
+		t.Fatal("expected an error, got nil")
+	}
+	apiErr, ok := err.(*APIError)
+	if !ok {
+		t.Fatalf("expected *APIError, got %T", err)
+	}
+	if apiErr.Message != "group already exists" {
+		t.Errorf("Message = %q, want %q", apiErr.Message, "group already exists")
+	}
+}
+
+func TestCreateGroup_FallsBackToRPCWhenRESTEndpointMissing(t *testing.T) {
+	var gotBody map[string]any
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/rest/api/admin/group":
+			w.WriteHeader(http.StatusNotFound)
+			_, _ = w.Write([]byte(`<html><body>404 - Page Not Found</body></html>`))
+		case jsonRPCPath:
+			b, _ := io.ReadAll(r.Body)
+			_ = json.Unmarshal(b, &gotBody)
+			w.WriteHeader(http.StatusOK)
+			_, _ = w.Write([]byte(`{"result": true, "jsonrpc": "2.0", "id": 1}`))
+		default:
+			t.Errorf("unexpected request: %s %s", r.Method, r.URL.Path)
+			w.WriteHeader(http.StatusNotFound)
+		}
+	}))
+	defer srv.Close()
+
+	c, err := New(Config{Host: srv.URL, Token: "tok"})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	group, err := c.CreateGroup(context.Background(), "developers")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if gotBody["method"] != "addGroup" {
+		t.Errorf("RPC method = %v, want %q", gotBody["method"], "addGroup")
+	}
+	params, ok := gotBody["params"].([]any)
+	if !ok || len(params) != 1 || params[0] != "developers" {
+		t.Errorf("RPC params = %+v, want [\"developers\"]", gotBody["params"])
+	}
+	if group.Name != "developers" {
+		t.Errorf("group.Name = %q, want %q", group.Name, "developers")
+	}
+}
+
+func TestCreateGroup_RPCErrorAfterRESTFallback(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/rest/api/admin/group":
+			w.WriteHeader(http.StatusNotFound)
+			_, _ = w.Write([]byte(`<html><body>404 - Page Not Found</body></html>`))
+		case jsonRPCPath:
+			w.WriteHeader(http.StatusOK)
+			_, _ = w.Write([]byte(`{"error": {"code": 500, "message": "directory is read-only"}, "jsonrpc": "2.0", "id": 1}`))
+		}
 	}))
 	defer srv.Close()
 
@@ -179,17 +246,16 @@ func TestGetGroup_NotFound(t *testing.T) {
 }
 
 func TestDeleteGroup_Success(t *testing.T) {
-	var gotRPCMethod string
-	var gotBody map[string]any
+	rpcCalled := false
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch {
 		case r.Method == http.MethodGet && r.URL.Path == "/rest/api/group/developers":
 			w.WriteHeader(http.StatusOK)
 			_, _ = w.Write([]byte(`{"name":"developers","type":"group"}`))
+		case r.Method == http.MethodDelete && r.URL.Path == "/rest/api/admin/group/developers":
+			w.WriteHeader(http.StatusNoContent)
 		case r.URL.Path == jsonRPCPath:
-			b, _ := io.ReadAll(r.Body)
-			_ = json.Unmarshal(b, &gotBody)
-			gotRPCMethod, _ = gotBody["method"].(string)
+			rpcCalled = true
 			w.WriteHeader(http.StatusOK)
 			_, _ = w.Write([]byte(`{"result": true, "jsonrpc": "2.0", "id": 1}`))
 		default:
@@ -207,12 +273,47 @@ func TestDeleteGroup_Success(t *testing.T) {
 	if err := c.DeleteGroup(context.Background(), "developers"); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if gotRPCMethod != "removeGroup" {
-		t.Errorf("RPC method = %q, want %q", gotRPCMethod, "removeGroup")
+	if rpcCalled {
+		t.Error("removeGroup should not have been called when the REST DELETE succeeded")
+	}
+}
+
+func TestDeleteGroup_FallsBackToRPCWhenRESTEndpointMissing(t *testing.T) {
+	var gotBody map[string]any
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case r.Method == http.MethodGet && r.URL.Path == "/rest/api/group/developers":
+			w.WriteHeader(http.StatusOK)
+			_, _ = w.Write([]byte(`{"name":"developers","type":"group"}`))
+		case r.Method == http.MethodDelete && r.URL.Path == "/rest/api/admin/group/developers":
+			w.WriteHeader(http.StatusNotFound)
+			_, _ = w.Write([]byte(`<html><body>404 - Page Not Found</body></html>`))
+		case r.URL.Path == jsonRPCPath:
+			b, _ := io.ReadAll(r.Body)
+			_ = json.Unmarshal(b, &gotBody)
+			w.WriteHeader(http.StatusOK)
+			_, _ = w.Write([]byte(`{"result": true, "jsonrpc": "2.0", "id": 1}`))
+		default:
+			t.Errorf("unexpected request: %s %s", r.Method, r.URL.Path)
+			w.WriteHeader(http.StatusNotFound)
+		}
+	}))
+	defer srv.Close()
+
+	c, err := New(Config{Host: srv.URL, Token: "tok"})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if err := c.DeleteGroup(context.Background(), "developers"); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if gotBody["method"] != "removeGroup" {
+		t.Errorf("RPC method = %v, want %q", gotBody["method"], "removeGroup")
 	}
 	params, ok := gotBody["params"].([]any)
 	if !ok || len(params) != 2 || params[0] != "developers" {
-		t.Errorf("params = %+v, want [\"developers\", nil]", gotBody["params"])
+		t.Errorf("RPC params = %+v, want [\"developers\", nil]", gotBody["params"])
 	}
 }
 

@@ -36,7 +36,7 @@ run separately from unit tests** because they require live infrastructure.
 
 Requirements:
 
-- A running Confluence Data Center instance with the legacy JSON-RPC API enabled (the default)
+- A running Confluence Data Center instance (group/space-permission writes use REST, falling back to the legacy JSON-RPC API, enabled by default, only on instances old enough to lack those REST endpoints)
 - `CONFLUENCE_HOST` set to the base URL of that instance
 - Either:
   - `CONFLUENCE_TOKEN` (a personal access token), or

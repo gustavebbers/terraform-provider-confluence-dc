@@ -11,15 +11,14 @@ import (
 
 func TestAddSpacePermission_Success(t *testing.T) {
 	var gotMethod, gotPath string
-	var gotBody map[string]any
+	var gotBody []restOperationDescription
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		gotMethod = r.Method
 		gotPath = r.URL.Path
 		b, _ := io.ReadAll(r.Body)
 		_ = json.Unmarshal(b, &gotBody)
 
-		w.WriteHeader(http.StatusOK)
-		_, _ = w.Write([]byte(`{"result": true, "jsonrpc": "2.0", "id": 1}`))
+		w.WriteHeader(http.StatusNoContent)
 	}))
 	defer srv.Close()
 
@@ -36,21 +35,14 @@ func TestAddSpacePermission_Success(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
-	if gotMethod != http.MethodPost {
-		t.Errorf("method = %q, want %q", gotMethod, http.MethodPost)
+	if gotMethod != http.MethodPut {
+		t.Errorf("method = %q, want %q", gotMethod, http.MethodPut)
 	}
-	if gotPath != jsonRPCPath {
-		t.Errorf("path = %q, want %q", gotPath, jsonRPCPath)
+	if gotPath != "/rest/api/space/ENG/permissions/group/developers/grant" {
+		t.Errorf("path = %q, want %q", gotPath, "/rest/api/space/ENG/permissions/group/developers/grant")
 	}
-	if gotBody["method"] != "addPermissionToSpace" {
-		t.Errorf("RPC method = %v, want %q", gotBody["method"], "addPermissionToSpace")
-	}
-	params, ok := gotBody["params"].([]any)
-	if !ok || len(params) != 3 {
-		t.Fatalf("params = %+v, want 3 elements", gotBody["params"])
-	}
-	if params[0] != "VIEWSPACE" || params[1] != "developers" || params[2] != "ENG" {
-		t.Errorf("params = %+v, want [VIEWSPACE developers ENG]", params)
+	if len(gotBody) != 1 || gotBody[0].TargetType != "space" || gotBody[0].OperationKey != "read" {
+		t.Errorf("body = %+v, want [{targetType:space operationKey:read}]", gotBody)
 	}
 
 	if perm.Subject.Identifier != "developers" {
@@ -76,13 +68,99 @@ func TestAddSpacePermission_UnsupportedCombination(t *testing.T) {
 	}
 }
 
-func TestRemoveSpacePermission_Success(t *testing.T) {
+func TestAddSpacePermission_FallsBackToRPCWhenRESTEndpointMissing(t *testing.T) {
 	var gotBody map[string]any
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/rest/api/space/ENG/permissions/group/developers/grant":
+			w.WriteHeader(http.StatusNotFound)
+			_, _ = w.Write([]byte(`<html><body>404 - Page Not Found</body></html>`))
+		case jsonRPCPath:
+			b, _ := io.ReadAll(r.Body)
+			_ = json.Unmarshal(b, &gotBody)
+			w.WriteHeader(http.StatusOK)
+			_, _ = w.Write([]byte(`{"result": true, "jsonrpc": "2.0", "id": 1}`))
+		default:
+			t.Errorf("unexpected request: %s %s", r.Method, r.URL.Path)
+			w.WriteHeader(http.StatusNotFound)
+		}
+	}))
+	defer srv.Close()
+
+	c, err := New(Config{Host: srv.URL, Token: "tok"})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	_, err = c.AddSpacePermission(context.Background(), "ENG",
+		PermissionSubject{Type: "group", Identifier: "developers"},
+		PermissionOperation{Key: "read", Target: "space"},
+	)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if gotBody["method"] != "addPermissionToSpace" {
+		t.Errorf("RPC method = %v, want %q", gotBody["method"], "addPermissionToSpace")
+	}
+	params, ok := gotBody["params"].([]any)
+	if !ok || len(params) != 3 || params[0] != "VIEWSPACE" || params[1] != "developers" || params[2] != "ENG" {
+		t.Errorf("RPC params = %+v, want [VIEWSPACE developers ENG]", gotBody["params"])
+	}
+}
+
+func TestRemoveSpacePermission_Success(t *testing.T) {
+	var gotMethod, gotPath string
+	var gotBody []restOperationDescription
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotMethod = r.Method
+		gotPath = r.URL.Path
 		b, _ := io.ReadAll(r.Body)
 		_ = json.Unmarshal(b, &gotBody)
-		w.WriteHeader(http.StatusOK)
-		_, _ = w.Write([]byte(`{"result": true, "jsonrpc": "2.0", "id": 1}`))
+		w.WriteHeader(http.StatusNoContent)
+	}))
+	defer srv.Close()
+
+	c, err := New(Config{Host: srv.URL, Token: "tok"})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	err = c.RemoveSpacePermission(context.Background(), "ENG",
+		PermissionSubject{Type: "group", Identifier: "developers"},
+		PermissionOperation{Key: "administer", Target: "space"},
+	)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if gotMethod != http.MethodPut {
+		t.Errorf("method = %q, want %q", gotMethod, http.MethodPut)
+	}
+	if gotPath != "/rest/api/space/ENG/permissions/group/developers/revoke" {
+		t.Errorf("path = %q, want %q", gotPath, "/rest/api/space/ENG/permissions/group/developers/revoke")
+	}
+	if len(gotBody) != 1 || gotBody[0].TargetType != "space" || gotBody[0].OperationKey != "administer" {
+		t.Errorf("body = %+v, want [{targetType:space operationKey:administer}]", gotBody)
+	}
+}
+
+func TestRemoveSpacePermission_FallsBackToRPCWhenRESTEndpointMissing(t *testing.T) {
+	var gotBody map[string]any
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/rest/api/space/ENG/permissions/group/developers/revoke":
+			w.WriteHeader(http.StatusNotFound)
+			_, _ = w.Write([]byte(`<html><body>404 - Page Not Found</body></html>`))
+		case jsonRPCPath:
+			b, _ := io.ReadAll(r.Body)
+			_ = json.Unmarshal(b, &gotBody)
+			w.WriteHeader(http.StatusOK)
+			_, _ = w.Write([]byte(`{"result": true, "jsonrpc": "2.0", "id": 1}`))
+		default:
+			t.Errorf("unexpected request: %s %s", r.Method, r.URL.Path)
+			w.WriteHeader(http.StatusNotFound)
+		}
 	}))
 	defer srv.Close()
 
@@ -104,7 +182,7 @@ func TestRemoveSpacePermission_Success(t *testing.T) {
 	}
 	params, ok := gotBody["params"].([]any)
 	if !ok || len(params) != 3 || params[0] != "SETSPACEPERMISSIONS" || params[1] != "developers" || params[2] != "ENG" {
-		t.Errorf("params = %+v, want [SETSPACEPERMISSIONS developers ENG]", gotBody["params"])
+		t.Errorf("RPC params = %+v, want [SETSPACEPERMISSIONS developers ENG]", gotBody["params"])
 	}
 }
 

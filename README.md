@@ -5,30 +5,34 @@ Center](https://www.atlassian.com/software/confluence) (self-managed, on-prem)
 instances. It is **not** compatible with Confluence Cloud, which has a
 different REST API.
 
-Confluence Data Center's REST API only supports *reading* groups and space
-permissions, not creating or modifying them (verified empirically: it returns
-404/405 for those write endpoints even on current releases). `confluencedc_group`
-and `confluencedc_space_permission` therefore perform writes through
-Confluence's legacy JSON-RPC API (`confluenceservice-v2`) instead. That API is
-deprecated by Atlassian but still present and functional as of Confluence
-Data Center 9.2; it must remain enabled on the target instance for these two
-resources to work.
+`confluencedc_group` and `confluencedc_space_permission` create/delete groups
+and grant/revoke space permissions through REST endpoints under
+`/rest/api/admin/group` and
+`/rest/api/space/{spaceKey}/permissions/group/{groupName}` — separate from,
+and unrelated to, the read-only `/rest/api/group` and
+`/rest/api/space/{spaceKey}/permissions` endpoints, which is why those write
+paths can look unsupported at first (they 404/405). If those write endpoints
+aren't found (e.g. a Confluence Data Center release old enough to predate
+them), the provider falls back to Confluence's legacy JSON-RPC API
+(`confluenceservice-v2`), deprecated by Atlassian since Confluence 5.5 but
+still present and functional on current releases.
 
 ## Requirements
 
 - [Go](https://go.dev/doc/install) 1.27.1 (see `go.mod`)
 - [Terraform](https://developer.hashicorp.com/terraform/downloads) >= 1.7
-- A Confluence Data Center instance with the legacy JSON-RPC API enabled (the default) for `confluencedc_group` and `confluencedc_space_permission`
+- A Confluence Data Center instance; `confluencedc_group` and `confluencedc_space_permission` use REST by default and only need the legacy JSON-RPC API enabled (the default) as a fallback on instances old enough to lack the REST write endpoints they rely on
 
 ## Troubleshooting
 
-If `confluencedc_group` or `confluencedc_space_permission` start failing with
-a 404/405 error mentioning the JSON-RPC endpoint, an admin has likely
-disabled the Remote API — this can happen as a side effect of a Confluence
-upgrade or a general re-review of admin settings. Check **Confluence
-Administration > General Configuration > Further Configuration** and make
-sure **"Remote API (XML-RPC & SOAP)"** is checked; despite its name, this
-setting also gates the JSON-RPC endpoint these two resources depend on.
+If `confluencedc_group` or `confluencedc_space_permission` fail with a
+404/405 error mentioning the JSON-RPC endpoint, it means REST *and* the
+JSON-RPC fallback both failed — most likely because an admin has disabled
+the Remote API, which can happen as a side effect of a Confluence upgrade or
+a general re-review of admin settings. Check **Confluence Administration >
+General Configuration > Further Configuration** and make sure **"Remote API
+(XML-RPC & SOAP)"** is checked; despite its name, this setting also gates
+the JSON-RPC endpoint used as a fallback.
 
 ## Using the provider
 

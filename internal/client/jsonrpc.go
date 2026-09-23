@@ -9,15 +9,13 @@ import (
 	"net/http"
 )
 
-// Confluence Data Center's REST API does not implement write operations for
-// groups or space permissions (verified empirically: POST /rest/api/group
-// and POST/DELETE /rest/api/space/{key}/permission return 404/405 even on
-// current Data Center releases). The only way to create/delete groups and
-// grant/revoke space permissions is Confluence's legacy JSON-RPC API
-// (confluenceservice-v2), deprecated by Atlassian since Confluence 5.5 but
-// still present and functional. It authenticates through the same request
-// filter chain as the REST API, so both Personal Access Tokens and HTTP
-// Basic auth work against it unchanged.
+// Group creation/deletion and space-permission grant/revoke are done through
+// REST first (see group.go and permission.go); this legacy JSON-RPC API
+// (confluenceservice-v2), deprecated by Atlassian since Confluence 5.5, only
+// comes into play as a fallback when the REST endpoint itself isn't found -
+// i.e. on a Data Center instance old enough to predate it. It authenticates
+// through the same request filter chain as the REST API, so both Personal
+// Access Tokens and HTTP Basic auth work against it unchanged.
 const jsonRPCPath = "/rpc/json-rpc/confluenceservice-v2"
 
 type jsonRPCError struct {

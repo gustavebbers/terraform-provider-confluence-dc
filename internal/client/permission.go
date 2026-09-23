@@ -14,15 +14,19 @@ type PermissionSubject struct {
 
 // PermissionOperation identifies what a space permission grants.
 //
-// Confluence Data Center's REST API only supports *reading* space
-// permissions; granting and revoking them requires the legacy JSON-RPC API
-// (see jsonrpc.go), whose permission model predates and differs from the
-// REST API's operation-key/target vocabulary. The pairs below are the
-// complete, verified set of REST (Key, Target) pairs and the legacy
-// JSON-RPC permission type each one corresponds to; this is the full set of
-// grantable space permissions, empirically confirmed against a live
-// Confluence Data Center 9.2 instance (there is no way to enumerate this
-// mapping from documentation, since Atlassian does not publish it):
+// Granting and revoking permissions goes through
+// PUT /rest/api/space/{spaceKey}/permissions/group/{groupName}/grant (and
+// .../revoke), using the same operationKey/targetType vocabulary as the
+// read-only endpoint this client already used
+// (restSpacePermissionEntry, below). Older Data Center instances that
+// predate that endpoint fall back to the legacy JSON-RPC API (see
+// jsonrpc.go), whose permission model uses a different vocabulary. The
+// pairs below are the complete, verified set of REST (Key, Target) pairs
+// and the legacy JSON-RPC permission type each one corresponds to; this is
+// the full set of grantable space permissions, empirically confirmed
+// against a live Confluence Data Center 9.2 instance (there is no way to
+// enumerate this mapping from documentation, since Atlassian does not
+// publish it):
 //
 //	Key          Target       legacy JSON-RPC type
 //	read         space        VIEWSPACE
@@ -79,12 +83,38 @@ type SpacePermission struct {
 	Operation PermissionOperation `json:"operation"`
 }
 
+// restOperationDescription is the request body shape accepted by the
+// grant/revoke space-permission REST endpoints - the same
+// operationKey/targetType field names as restSpacePermissionEntry.Operation.
+type restOperationDescription struct {
+	TargetType   string `json:"targetType"`
+	OperationKey string `json:"operationKey"`
+}
+
+func spacePermissionGrantRevokePath(spaceKey, groupName, action string) string {
+	return fmt.Sprintf("/rest/api/space/%s/permissions/group/%s/%s",
+		url.PathEscape(spaceKey), url.PathEscape(groupName), action)
+}
+
 // AddSpacePermission grants a permission on a space to a subject (only
-// "group" subjects are exercised by this provider, though the underlying
-// JSON-RPC method also accepts usernames).
+// "group" subjects are exercised by this provider) via
+// PUT .../permissions/group/{groupName}/grant, falling back to the legacy
+// JSON-RPC API (see jsonrpc.go) if that endpoint isn't found.
 func (c *Client) AddSpacePermission(ctx context.Context, spaceKey string, subject PermissionSubject, operation PermissionOperation) (*SpacePermission, error) {
+	// Validated upfront (rather than only along the JSON-RPC fallback
+	// branch below) so an unsupported combination fails fast without a
+	// network round trip, since the REST endpoint accepts exactly the
+	// same set of pairs.
 	legacyType, err := toLegacyPermissionType(operation)
 	if err != nil {
+		return nil, err
+	}
+
+	path := spacePermissionGrantRevokePath(spaceKey, subject.Identifier, "grant")
+	body := []restOperationDescription{{TargetType: operation.Target, OperationKey: operation.Key}}
+	if err := c.do(ctx, "PUT", path, body, nil); err == nil {
+		return &SpacePermission{Subject: subject, Operation: operation}, nil
+	} else if !isRouteNotFound(err) {
 		return nil, err
 	}
 
@@ -95,12 +125,20 @@ func (c *Client) AddSpacePermission(ctx context.Context, spaceKey string, subjec
 	return &SpacePermission{Subject: subject, Operation: operation}, nil
 }
 
-// RemoveSpacePermission revokes a previously granted space permission.
-// Revoking a permission that is not currently granted is not an error
-// (Confluence's underlying JSON-RPC method is idempotent).
+// RemoveSpacePermission revokes a previously granted space permission via
+// PUT .../permissions/group/{groupName}/revoke, falling back to the legacy
+// JSON-RPC API (see jsonrpc.go) if that endpoint isn't found. Revoking a
+// permission that is not currently granted is not an error (both the REST
+// endpoint and the legacy JSON-RPC method are idempotent).
 func (c *Client) RemoveSpacePermission(ctx context.Context, spaceKey string, subject PermissionSubject, operation PermissionOperation) error {
 	legacyType, err := toLegacyPermissionType(operation)
 	if err != nil {
+		return err
+	}
+
+	path := spacePermissionGrantRevokePath(spaceKey, subject.Identifier, "revoke")
+	body := []restOperationDescription{{TargetType: operation.Target, OperationKey: operation.Key}}
+	if err := c.do(ctx, "PUT", path, body, nil); err == nil || !isRouteNotFound(err) {
 		return err
 	}
 
@@ -132,9 +170,10 @@ func (c *Client) GetSpacePermission(ctx context.Context, spaceKey string, subjec
 // restSpacePermissionEntry is the wire shape returned by
 // GET /rest/api/space/{spaceKey}/permissions (note: plural; the singular
 // /permission sub-resource used by Confluence Cloud does not exist on Data
-// Center). It uses different field names than the request bodies accepted
-// by the (nonfunctional, on Data Center) POST/DELETE variants of this
-// endpoint.
+// Center, and POST/DELETE on this plural endpoint aren't implemented
+// either - granting/revoking goes through the separate
+// .../permissions/group/{groupName}/grant and .../revoke endpoints used by
+// AddSpacePermission and RemoveSpacePermission above).
 type restSpacePermissionEntry struct {
 	Operation struct {
 		Key    string `json:"operationKey"`

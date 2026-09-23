@@ -50,11 +50,11 @@ func (p *confluenceDCProvider) Metadata(_ context.Context, _ provider.MetadataRe
 func (p *confluenceDCProvider) Schema(_ context.Context, _ provider.SchemaRequest, resp *provider.SchemaResponse) {
 	resp.Schema = schema.Schema{
 		Description: "Interacts with a Confluence Data Center (self-managed) instance to manage groups and " +
-			"space permissions, and to read space information. Confluence Data Center's REST API does not " +
-			"support creating/deleting groups or granting/revoking space permissions, so confluencedc_group " +
-			"and confluencedc_space_permission perform writes through Confluence's legacy JSON-RPC API " +
-			"(confluenceservice-v2) instead; that API is deprecated by Atlassian but present and functional on " +
-			"current Data Center releases. It must remain enabled on the target instance.",
+			"space permissions, and to read space information. confluencedc_group and confluencedc_space_permission " +
+			"create/delete groups and grant/revoke space permissions through REST endpoints under " +
+			"/rest/api/admin/group and /rest/api/space/{spaceKey}/permissions/group/{groupName}, falling back to " +
+			"Confluence's legacy JSON-RPC API (confluenceservice-v2, deprecated by Atlassian since Confluence " +
+			"5.5) only if those REST endpoints aren't found on the target instance.",
 		Attributes: map[string]schema.Attribute{
 			"host": schema.StringAttribute{
 				Optional: true,

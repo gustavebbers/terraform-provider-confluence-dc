@@ -3,12 +3,12 @@
 page_title: "confluencedc_space_permission Resource - confluencedc"
 subcategory: ""
 description: |-
-  Grants a permission on a Confluence space to a group. Confluence Data Center's REST API only supports reading space permissions, not granting or revoking them, so this resource performs writes through Confluence's legacy JSON-RPC API (confluenceservice-v2) instead; that API is deprecated by Atlassian but still present and functional as of Confluence Data Center 9.2. It must remain enabled on the target instance for this resource to work.
+  Grants a permission on a Confluence space to a group, via PUT /rest/api/space/{spaceKey}/permissions/group/{groupName}/grant (and .../revoke on destroy). Falls back to Confluence's legacy JSON-RPC API (confluenceservice-v2, deprecated by Atlassian since Confluence 5.5) only if that REST endpoint isn't found on the target instance.
 ---
 
 # confluencedc_space_permission (Resource)
 
-Grants a permission on a Confluence space to a group. Confluence Data Center's REST API only supports reading space permissions, not granting or revoking them, so this resource performs writes through Confluence's legacy JSON-RPC API (confluenceservice-v2) instead; that API is deprecated by Atlassian but still present and functional as of Confluence Data Center 9.2. It must remain enabled on the target instance for this resource to work.
+Grants a permission on a Confluence space to a group, via PUT /rest/api/space/{spaceKey}/permissions/group/{groupName}/grant (and .../revoke on destroy). Falls back to Confluence's legacy JSON-RPC API (confluenceservice-v2, deprecated by Atlassian since Confluence 5.5) only if that REST endpoint isn't found on the target instance.
 
 ## Example Usage
 

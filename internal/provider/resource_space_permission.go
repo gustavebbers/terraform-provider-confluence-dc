@@ -42,11 +42,10 @@ func (r *spacePermissionResource) Metadata(_ context.Context, req resource.Metad
 
 func (r *spacePermissionResource) Schema(_ context.Context, _ resource.SchemaRequest, resp *resource.SchemaResponse) {
 	resp.Schema = schema.Schema{
-		Description: "Grants a permission on a Confluence space to a group. Confluence Data Center's REST API " +
-			"only supports reading space permissions, not granting or revoking them, so this resource performs " +
-			"writes through Confluence's legacy JSON-RPC API (confluenceservice-v2) instead; that API is " +
-			"deprecated by Atlassian but still present and functional as of Confluence Data Center 9.2. It must " +
-			"remain enabled on the target instance for this resource to work.",
+		Description: "Grants a permission on a Confluence space to a group, via " +
+			"PUT /rest/api/space/{spaceKey}/permissions/group/{groupName}/grant (and .../revoke on destroy). " +
+			"Falls back to Confluence's legacy JSON-RPC API (confluenceservice-v2, deprecated by Atlassian since " +
+			"Confluence 5.5) only if that REST endpoint isn't found on the target instance.",
 		Attributes: map[string]schema.Attribute{
 			"id": schema.StringAttribute{
 				Computed: true,
