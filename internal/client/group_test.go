@@ -43,6 +43,9 @@ func TestCreateGroup_Success(t *testing.T) {
 	if gotBody["name"] != "developers" {
 		t.Errorf("request body name = %v, want %q", gotBody["name"], "developers")
 	}
+	if gotBody["type"] != "group" {
+		t.Errorf("request body type = %v, want %q", gotBody["type"], "group")
+	}
 	if group.Name != "developers" {
 		t.Errorf("group.Name = %q, want %q", group.Name, "developers")
 	}

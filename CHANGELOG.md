@@ -15,6 +15,11 @@
   fails, a 404/405 from it now returns an error explaining that the
   Confluence "Remote API (XML-RPC & SOAP)" admin setting also gates the
   JSON-RPC endpoint, instead of a bare, hard-to-diagnose HTTP status.
+- Fixed: `confluencedc_group` creation via REST was sending `{"name": ...}`
+  without a `type` field, which POST /rest/api/admin/group rejects with a
+  400 ("missing type id property 'type'") since Confluence deserializes
+  the body as its polymorphic Group model. The request body now includes
+  `"type": "group"`.
 
 <!--
 Entries are added here manually as changes are made, and moved under a

@@ -24,7 +24,13 @@ type Group struct {
 // provider bug.
 func (c *Client) CreateGroup(ctx context.Context, name string) (*Group, error) {
 	var group Group
-	err := c.do(ctx, "POST", "/rest/api/admin/group", map[string]string{"name": name}, &group)
+	// The "type" field is required even though it's constant: Confluence
+	// deserializes the request body as the polymorphic
+	// com.atlassian.confluence.api.model.people.Group type via Jackson,
+	// which needs it as a type-id discriminator and 400s with "missing
+	// type id property 'type'" otherwise.
+	body := map[string]string{"name": name, "type": "group"}
+	err := c.do(ctx, "POST", "/rest/api/admin/group", body, &group)
 	if err == nil {
 		return &group, nil
 	}
