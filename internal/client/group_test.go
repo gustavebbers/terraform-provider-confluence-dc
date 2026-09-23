@@ -6,6 +6,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 )
 
@@ -73,6 +74,34 @@ func TestCreateGroup_RPCError(t *testing.T) {
 	}
 	if apiErr.Message != "directory is read-only" {
 		t.Errorf("Message = %q, want %q", apiErr.Message, "directory is read-only")
+	}
+}
+
+func TestCreateGroup_RemoteAPIDisabled(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusNotFound)
+		_, _ = w.Write([]byte(`<html><body>404 - Page Not Found</body></html>`))
+	}))
+	defer srv.Close()
+
+	c, err := New(Config{Host: srv.URL, Token: "tok"})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	_, err = c.CreateGroup(context.Background(), "developers")
+	if err == nil {
+		t.Fatal("expected an error, got nil")
+	}
+	apiErr, ok := err.(*APIError)
+	if !ok {
+		t.Fatalf("expected *APIError, got %T", err)
+	}
+	if apiErr.StatusCode != http.StatusNotFound {
+		t.Errorf("StatusCode = %d, want %d", apiErr.StatusCode, http.StatusNotFound)
+	}
+	if !strings.Contains(apiErr.Message, "Remote API") {
+		t.Errorf("Message = %q, want it to mention the Remote API admin setting", apiErr.Message)
 	}
 }
 

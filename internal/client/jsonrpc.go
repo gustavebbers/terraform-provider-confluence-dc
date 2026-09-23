@@ -67,6 +67,26 @@ func (c *Client) rpcCall(ctx context.Context, method string, params []any, out a
 		return fmt.Errorf("reading JSON-RPC response: %w", err)
 	}
 
+	if resp.StatusCode == http.StatusNotFound || resp.StatusCode == http.StatusMethodNotAllowed {
+		// A 404/405 here means the *endpoint* wasn't found, not that the RPC
+		// method was rejected (a rejected method comes back as a 200 with a
+		// JSON-RPC "error" field, handled below). This is what happens when
+		// an admin has switched off "Remote API (XML-RPC & SOAP)" under
+		// Confluence Administration > General Configuration > Further
+		// Configuration, which also gates the JSON-RPC endpoint despite its
+		// name only mentioning XML-RPC and SOAP.
+		return &APIError{
+			StatusCode: resp.StatusCode,
+			Method:     "JSON-RPC",
+			Path:       method,
+			Message: "the legacy JSON-RPC endpoint (" + jsonRPCPath + ") returned " +
+				fmt.Sprintf("%d", resp.StatusCode) + "; this usually means the Remote API is disabled on the " +
+				"target instance - check Confluence Administration > General Configuration > Further " +
+				"Configuration > \"Remote API (XML-RPC & SOAP)\" (this setting also controls JSON-RPC)",
+			Body: string(body),
+		}
+	}
+
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		return &APIError{StatusCode: resp.StatusCode, Method: "JSON-RPC", Path: method, Body: string(body)}
 	}

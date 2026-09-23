@@ -20,6 +20,16 @@ resources to work.
 - [Terraform](https://developer.hashicorp.com/terraform/downloads) >= 1.7
 - A Confluence Data Center instance with the legacy JSON-RPC API enabled (the default) for `confluencedc_group` and `confluencedc_space_permission`
 
+## Troubleshooting
+
+If `confluencedc_group` or `confluencedc_space_permission` start failing with
+a 404/405 error mentioning the JSON-RPC endpoint, an admin has likely
+disabled the Remote API — this can happen as a side effect of a Confluence
+upgrade or a general re-review of admin settings. Check **Confluence
+Administration > General Configuration > Further Configuration** and make
+sure **"Remote API (XML-RPC & SOAP)"** is checked; despite its name, this
+setting also gates the JSON-RPC endpoint these two resources depend on.
+
 ## Using the provider
 
 ```hcl
