@@ -75,11 +75,11 @@ variables) is an error.
 - `confluencedc_space` (data source) — reads an existing Confluence space by its key.
 - `confluencedc_group` (resource) — manages a Confluence group.
 - `confluencedc_space_permission` (resource) — grants a group a permission on a space.
+- `confluencedc_global_permission` (resource) — grants a group an instance-wide permission (e.g. standard use access, or system administrator rights). Unlike the two resources above, this one has no legacy JSON-RPC fallback and requires REST.
 
-> **Note:** `confluencedc_group` and `confluencedc_space_permission` grant/revoke
-> through Confluence's legacy JSON-RPC API, since the REST API has no working
-> write endpoints for these on Data Center. See the note at the top of this
-> README.
+> **Note:** `confluencedc_group` and `confluencedc_space_permission` fall back to
+> Confluence's legacy JSON-RPC API if their REST write endpoints aren't found
+> on the target instance. See the note at the top of this README.
 
 ## Developing the Provider
 
