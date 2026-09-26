@@ -161,6 +161,7 @@ func (p *confluenceDCProvider) Resources(_ context.Context) []func() resource.Re
 	return []func() resource.Resource{
 		NewGroupResource,
 		NewSpacePermissionResource,
+		NewGlobalPermissionResource,
 	}
 }
 
