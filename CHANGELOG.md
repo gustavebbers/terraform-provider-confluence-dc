@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## v0.3.0
+
 - Added: new `confluencedc_global_permission` resource, for granting a
   group an instance-wide permission (e.g. standard use/login access via
   `use`/`application`, or system administrator rights via
