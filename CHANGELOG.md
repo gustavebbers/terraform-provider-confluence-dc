@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+## v0.3.1
+
+- Docs: the `confluencedc_global_permission` example now uses a generic
+  `platform-admin` group name. No functional changes.
+
 ## v0.3.0
 
 - Added: new `confluencedc_global_permission` resource, for granting a
